@@ -1,11 +1,140 @@
-library(boot)
+library(quantmod)
+library(TTR)
+library(gbm)
+library(quadprog)
 
 
-ML_features <- read.csv("ML_features.csv")
+#################################################################################
+ML_data <- read.csv("Training.csv")
 
-colnames(ML_features)
+pred_mod = gbm(Target ~.,data = ML_data[,-c(16)],distribution="gaussian",n.trees=283,
+               interaction.depth=2, shrinkage = 0.0401)
 
-###############################################################################
+# Create fresh table for predicting return
+
+ML_data <- function(ticker){
+  apple <- getSymbols(ticker, from = "2002-07-30", to = "2020-08-31", auto.assign = F)
+  
+  weekly.rtn <- weeklyReturn(apple, type = "arithmetic")
+  weekly.rtn <- weekly.rtn[-c(1,2,3),]
+  
+  daily_ret = dailyReturn(apple[,4])
+  
+  #RSI_Return = db[start_i:(end_i),]
+  
+  rsi_5 = RSI(apple[,4], n = 5)
+  rsi_14 = RSI(apple[,4], n = 14)
+  
+  macd_5_10 = MACD(apple[,4],nFast = 5, nSlow = 10)
+  macd_12_26 = MACD(apple[,4],nFast = 12, nSlow = 26)
+  
+  
+  return_forecast = data.frame()
+  
+  for (i in index(weekly.rtn)){
+    target = as.numeric(weekly.rtn$weekly.returns[which(index(weekly.rtn) == i)])
+    print(target)
+    print(as.Date(i))
+    
+    if ((i-7) %in% index(daily_ret)){
+      end = which(index(daily_ret) == (i-7))
+      
+      
+    } else if ((i-8) %in% index(daily_ret)){
+      end = which(index(daily_ret) == (i-8))
+      
+      
+    } else if ((i-9) %in% index(daily_ret)){
+      end = which(index(daily_ret) == (i-9))
+      
+    }
+    
+    print(end)
+    start = (end - 5)
+    print(start)
+    week_date = index(daily_ret)[end]
+    avg = round(mean(daily_ret$daily.returns[start:end]),6)
+    var = round(var(daily_ret$daily.returns[start:end]),6)
+    t_1 = daily_ret$daily.returns[end]
+    t_2 = daily_ret$daily.returns[end-1]
+    t_3 = daily_ret$daily.returns[end-2]
+    v_1 = apple[,5][end]
+    v_2 = apple[,5][end-1]
+    v_3 = apple[,5][end-2]
+    v_4 = apple[,5][end-3]
+    v_5 = apple[,5][end-4]
+    
+    tmp_rsi_1 = rsi_5$rsi[end]
+    tmp_rsi_2 = rsi_14$rsi[end]
+    avg_rsi_1  = mean(rsi_5$rsi[(end-3):end])
+    avg_rsi_2  = mean(rsi_14$rsi[(end-3):end])
+    
+    
+    tmp_macd_1 = macd_5_10$macd[end]
+    tmp_macd_2 = macd_12_26 $macd[end]
+    
+    
+    return_forecast = rbind(return_forecast,c(i,target,week_date,avg,var,t_1,t_2,t_3,
+                                              v_1,v_2,v_3,v_4,v_5,tmp_rsi_1,tmp_rsi_2,
+                                              tmp_macd_1,tmp_macd_2, avg_rsi_1,avg_rsi_2))
+  }
+  
+  colnames(return_forecast) <- c("Rtn_Date","Target","Week_date","Average","Variance",
+                                 "t_1", "t_2","t_3","v_1","v_2","v_3","v_4","v_5","RSI_1", 
+                                 "RSI_2","MACD_1","MACD_2","Avg_RSI_1","Avg_RSI_2")
+  return_forecast$Rtn_Date <- as.Date(return_forecast$Rtn_Date)
+  
+  return(return_forecast)
+}
+
+
+########################################################################################
+tickers = c("AAPL","IBM")
+
+ML_database <- data.frame()
+
+for (i in 1:length(tickers)){
+  tick = tickers[i]
+  print(tick)
+  #start_i = start_end[i,1]
+  #end_i = start_end[i,2]
+  tmp = ML_data(tick) #,RSI_database,start_i,end_i)
+  print(dim(tmp))
+  print(colnames(tmp))
+  ML_database = rbind(ML_database,tmp)
+  
+}
+
+
+ML_database$Week_date <- as.Date(ML_database$Week_date)
+
+#####################################################################################
+
+
+##########################################################################################
+
+ML_database$chg_v2 <- (ML_database$v_2 - ML_database$v_1)/ML_database$v_1
+ML_database$chg_v3 <- (ML_database$v_3 - ML_database$v_2)/ML_database$v_2
+ML_database$chg_v4 <- (ML_database$v_4 - ML_database$v_3)/ML_database$v_3
+ML_database$chg_v5 <- (ML_database$v_5 - ML_database$v_4)/ML_database$v_4
+
+ML_database$vol_cat <- as.factor(ifelse(ML_database$chg_v5>0 & ML_database$chg_v4 > 0 & ML_database$chg_v3 > 0,
+                                        1, ifelse(ML_database$chg_v5>0 | ML_database$chg_v4 > 0,
+                                                  0,-1)))
+
+##################################################################################
+
+
+
+
+
+print(colnames(ML_database))
+feat_cols <- c(2, 4:8,14:24)
+
+AAPL_features <- ML_database[1:941,feat_cols]
+IBM_features <- ML_database[942:1882,feat_cols]
+
+
 
 #Normalize the data first
 
@@ -20,203 +149,175 @@ Normalize=function(Data){
 }
 
 
-norm_data <- cbind(Normalize(ML_features[,3:11]),ML_features$Estimate, 
-                   ML_features$vol_cat_3, ML_features$Target,ML_features$Cat)
-
-colnames(norm_data) <- c(colnames(ML_features[3:11]),"Estimate", "Volume_Cat", 
-                         "Return","Category")
-
-norm_data$Target <- norm_data$Return-norm_data$Estimate
+AAPL_ML <- cbind(Normalize(AAPL_features[,2:16]), AAPL_features$vol_cat, AAPL_features$Target)
+colnames(AAPL_ML) <- c(colnames(AAPL_features[2:16]),"Volume_Cat", "Target")
 
 
-var((ML_features$Target)*100)
-
-State_1 = norm_data[which(norm_data$Cat == 1),-c(10,12,13)]
-State_2 = norm_data[which(norm_data$Cat == 2),-c(10,12,13)]
-State_3 = norm_data[which(norm_data$Cat == 3),-c(10,12,13)]
-State_4 = norm_data[which(norm_data$Cat == 4),-c(10,12,13)]
-State_5 = norm_data[which(norm_data$Cat == 5),-c(10,12,13)]
+IBM_ML <- cbind(Normalize(IBM_features[,2:16]), IBM_features$vol_cat, IBM_features$Target)
+colnames(IBM_ML) <- c(colnames(IBM_features[2:16]),"Volume_Cat", "Target")
 
 ##############################################################################
 
-# Cost Function for model comparison
 
-error_calc  = function(pred,test){
-  error = ((pred-test)*100)**2
-  return(sum(error)/length(pred))
+
+AAPL_ML$pred = predict(pred_mod, newdata = AAPL_ML[,-c(16)],n.trees=283)
+IBM_ML$pred = predict(pred_mod, newdata = IBM_ML[,-c(16)],n.trees=283)
+
+AAPL_ML$pred <- AAPL_ML$pred*100
+AAPL_ML$Target <- AAPL_ML$Target*100
+
+IBM_ML$pred <- IBM_ML$pred*100
+IBM_ML$Target <- IBM_ML$Target*100
+
+
+AAPL_ML$diff <- AAPL_ML$pred - AAPL_ML$Target
+IBM_ML$diff <- IBM_ML$pred - IBM_ML$Target
+
+AAPL_ML$covs <- AAPL_ML$diff * IBM_ML$diff
+
+# Covariance matrix
+
+# Portfolio Performance Matrix
+
+# From 01 January 2020 to 31 Aug 2020
+
+
+ML_portfolio <- cbind.data.frame(ML_database$Rtn_Date[908:941],
+                                 AAPL_ML$Target[908:941], IBM_ML$Target[908:941], 
+                                 AAPL_ML$pred[908:941], IBM_ML$pred[908:941])
+
+colnames(ML_portfolio) <- c("Rtn_date", "AAPL_Rtn","IBM_Rtn","AAPL_Pred","IBM_Pred")
+
+st = 907
+
+AAPL_var <- c()
+IBM_var <- c()
+covariance <- c()
+
+for(i in 1:dim(ML_portfolio)[1]){
+  tmp_1 <- (sum(AAPL_ML$diff[1:st]^2)/st)
+  tmp_2 <- (sum(IBM_ML$diff[1:st]^2)/st)
+  tmp_3 <- (sum((AAPL_ML$covs[1:st]))/st)
+  print(tmp_1)
+  print(tmp_3)
+  AAPL_var <- c(AAPL_var,tmp_1)
+  IBM_var <- c(IBM_var,tmp_2)
+  covariance <- c(covariance,tmp_3)
+  st = st + 1
+
 }
 
+ML_portfolio <- cbind.data.frame(ML_portfolio, AAPL_var, IBM_var, covariance)
 
-# Model 1 - Stepwise Linear Regression
-# Model 2 - Ridge Linear Regression
-# Model 3 - Random Forests
-# Model 4 - Boosting
-
-###############################################################################
-
-# State 3 Model
-
-#s3 = dim(State_3)[1]
-#s3_train = sample(1:s3,0.80*s3)
-
-null <- glm(Target ~ 1, data=State_3[,-10])
-full <- glm(Target ~ ., data=State_3[,-10])
-s3_lr_model1 <- step(null, scope=formula(full),
-                 direction="both", k = 2)
-summary(s3_lr_model1)
-s3_lr_error1 = cv.glm(State_3[,-10],s3_lr_model1,K=5)$delta[1]*(100*100)
-
-#s3_lr_pred1 <- predict.lm(s3_lr_model1, newdata = State_3[-s3_train,-10])
-#s3_lr_error1 = error_calc(s3_lr_pred1,State_3[-s3_train,11])
-#########################################################################
-
-#s3_lr_model2 <- lm(Target ~., data = State_3[s3_train,-c(6:9)])
-null <- glm(Target ~ 1, data=State_3[,-c(6:9)])
-full <- glm(Target ~ ., data=State_3[,-c(6:9)])
-s3_lr_model2 <- step(null, scope=formula(full),
-                     direction="both", k = 2)
-
-summary(s3_lr_model2)
-s3_lr_error2 = cv.glm(State_3[,-c(6:9)],s3_lr_model2,K=5)$delta[1]*(100*100)
-
-#s3_lr_pred2 <- predict.lm(s3_lr_model2, newdata = State_3[-s3_train,-c(6:9)])
-#s3_lr_error2 = error_calc(s3_lr_pred2,State_3[-s3_train,11])
+####################################################################################
 
 
-# Model 2 - Lasso Linear Regression
+# Covariance Matrix
 
-library(glmnet)
-
-lambda = 10^seq(-4,0,by=.001)
-
-s3_train = as.matrix(State_3[,-c(10,11)])
-s3_test = as.matrix(State_3[,11])
-
-s3_las_mod1 = glmnet(s3_train,s3_test,alpha=1,lambda=lambda)
-s3_las_cv1 = cv.glmnet(s3_train,s3_test,alpha=1,lambda=lambda, type.measure = "mse")
-s3_las_lam1 = s3_las_cv1$lambda.min
-s3_lasso_error1 <- s3_las_cv1$cvm[which(s3_las_cv1$lambda == s3_las_lam1)]*(100*100)
-
-as.vector(coef(cv.out, s = bestlam))
-
-s3_train = as.matrix(State_3[,-c(6,9,11)])
-s3_test = as.matrix(State_3[,11])
-
-s3_las_mod2 = glmnet(s3_train,s3_test,alpha=1,lambda=lambda)
-s3_las_cv2 = cv.glmnet(s3_train,s3_test,alpha=1,lambda=lambda, type.measure = "mse")
-s3_las_lam2 = s3_las_cv2$lambda.min
-s3_lasso_error2 <- s3_las_cv2$cvm[which(s3_las_cv2$lambda == s3_las_lam2)]*(100*100)
-
-
-#lassocoef=glmnet(x,y,alpha=1,lambda=lambda)
-#predict(lassocoef,type="coefficients",s=bestlam)
-
-
-# Model 3 - Boosting
-
-library(gbm)
-
-# Hyperparameters Tuning
-
-# We will take learning rates between 0.0001 and 0.15 with 1000 trees. We will identify the
-# lowest cross validated error 
-
-boost_learn = seq(0.0001,0.1, by = 0.005)
-
-s3_boost_errors = data.frame()
-
-for (i in boost_learn){
-  print(i)
-  s3_boost = gbm(Target ~.,data = State_3[,-c(10)], distribution = "gaussian",
-                   n.trees=1000,interaction.depth=2, shrinkage = i, cv.folds = 5)
+weights_solver <- function(var_1, var_2, cov_1,mu1,mu2){
   
-  tree <- which(s3_boost$cv.error == min(s3_boost$cv.error))
-  s3_error <- c(i,min(s3_boost$cv.error),tree)
-  s3_boost_errors = rbind(s3_boost_errors,s3_error)
+  Dmat=matrix(c(var_1, cov_1, cov_1, var_2), ncol =2, byrow=TRUE)
+  
+  # List of returns
+  Amat <- matrix(c(1,1,mu1,mu2),2,2, byrow=FALSE)
+  
+  #Target Return
+  bvec  <- c(1, 0.25)
+  
+  # Optimization
+  opt_sol=solve.QP(Dmat, c(0,0), Amat, bvec, meq=2, factorized=FALSE)
+  weights <- opt_sol$solution
+  return(weights)
   
 }
 
-colnames(s3_boost_errors) <- c("Shrinkage","Error", "Tree")
+weights.df <- data.frame()
 
-s3_ind = which(s3_boost_errors$Error == min(s3_boost_errors$Error))
+for(i in 1:dim(ML_portfolio)[1]){
+  tmp <- weights_solver(ML_portfolio[i,6],ML_portfolio[i,7],ML_portfolio[i,8],
+                        ML_portfolio[i,4],ML_portfolio[i,5])
+  
+  weights.df <- rbind(weights.df,tmp)
 
-s3_boost_min = c(s3_boost_errors$Shrinkage[s3_ind],s3_boost_errors$Tree[s3_ind])
-
-s3_boost_final = gbm(Target ~.,data = State_3[,-c(10)], distribution = "gaussian",
-               n.trees=s3_boost_min[2],interaction.depth=2, shrinkage = s3_boost_min[1], 
-               cv.folds = 5)
-
-min(s3_boost_final$cv.error)
-
-#####################################################################################
-
-# Neural Nets
-library(neuralnet)
-
-s3_train = State_3[,-c(10)]
-s3_test = State_3[,11]
-
-n = dim(State_3)[1]
-
-layers = 1:3
-
-
-
-cv = split(1:n, sample(1:5, n, replace=T))
-errors <- NULL
-for(i in  1:5){
-  train1 = 1:n
-  train1 = train1[-(unlist(cv[i]))]
-  s3_nn <- neuralnet(Target ~., State_3[train1,-c(10)], hidden=c(10,10), threshold=0.01)
-  nn_pred <- compute(s3_nn, State_3[-train1,-c(10,11)])
-  result = mean((nn_pred$net.result - State_3[-train1,11])^2) # measuring error rate
-  errors <- c(errors,result)
 }
-mean(errors)*(100*100)
+
+colnames(weights.df) <- c("We_A","We_B")
+
+ML_portfolio <- cbind(ML_portfolio, weights.df)
+
+ML_portfolio$return <- ML_portfolio$AAPL_Rtn*ML_portfolio$We_A + 
+  ML_portfolio$IBM_Rtn*ML_portfolio$We_B
+
+
+##################################################################################
+
+Base_portfolio <- cbind.data.frame(ML_database$Rtn_Date[908:941],
+                                   AAPL_ML$Target[908:941], IBM_ML$Target[908:941])
+
+colnames(Base_portfolio) <- c("Rtn_date", "AAPL_Rtn","IBM_Rtn")
+
+st = 907
+
+AAPL_mean <- c()
+IBM_mean <- c()
+AAPL_var <- c()
+IBM_var <- c()
+covariance <- c()
+
+for(i in 1:dim(ML_portfolio)[1]){
+  tmp_1 <- mean(AAPL_ML$Target[1:st])
+  tmp_2 <- mean(IBM_ML$Target[1:st])
+  
+  tmp_3 <- var(AAPL_ML$Target[1:st])
+  tmp_4 <- var(IBM_ML$Target[1:st])
+  
+  tmp_5 <- cov(AAPL_ML$Target[1:st],IBM_ML$Target[1:st])
+  
+  AAPL_mean <- c(AAPL_mean,tmp_1)
+  IBM_mean <- c(IBM_mean,tmp_2)
+  
+  AAPL_var <- c(AAPL_var,tmp_3)
+  IBM_var <- c(IBM_var,tmp_4)
+  covariance <- c(covariance,tmp_5)
+  st = st + 1
+  
+}
+
+Base_portfolio <- cbind.data.frame(Base_portfolio, AAPL_mean, IBM_mean, AAPL_var, 
+                                   IBM_var, covariance)
+
+weights.df <- data.frame()
+
+for(i in 1:dim(Base_portfolio)[1]){
+  tmp <- weights_solver(Base_portfolio[i,6],Base_portfolio[i,7],Base_portfolio[i,8],
+                        Base_portfolio[i,4],Base_portfolio[i,5])
+  
+  weights.df <- rbind(weights.df,tmp)
+  
+}
+
+colnames(weights.df) <- c("We_A","We_B")
+
+Base_portfolio <- cbind(Base_portfolio, weights.df)
+
+Base_portfolio$return <- Base_portfolio$AAPL_Rtn*Base_portfolio$We_A + 
+  Base_portfolio$IBM_Rtn*Base_portfolio$We_B
 
 
 
-s3_nn <- neuralnet(Target ~., State_3[,-c(10)], hidden=c(10,10), threshold=0.01)
-compute(s3_nn, )
+# Cases of extreme weights over the limit 0f 3 times investment amount shall be removed
+
+rows = which(ML_portfolio$We_A > 3 | ML_portfolio$We_A < -2)
+
+ML_portfolio <- ML_portfolio[-rows,]
+
+Base_portfolio <- Base_portfolio[-rows,]
 
 
+sum(Base_portfolio$return)
+sum(ML_portfolio$return)
 
 
+write.csv(Base_portfolio,"Base_Portfolio.csv")
 
-
-
-
-
-#S2 Model
-
-
-s2 = dim(State_2)[1]
-s2_train = sample(1:s2,0.80*s2)
-
-
-s2_lr_model <- lm(Target ~., data = State_2[s2_train,-10])
-
-s2_lr_pred <- predict.lm(s2_lr_model, newdata = State_2[-s2_train,-10])
-
-error_calc(s2_lr_pred,State_2[-s2_train,11])
-
-summary(s2_lr_model)
-
-
-null <- lm(Target ~ 1, data=State_2[s2_train,-c(6:9)])
-full <- lm(Target ~ ., data=State_2[s2_train,-c(6:9)])
-
-
-stepwise <- step(null, scope=formula(full),
-                 direction="both", k = 2)
-
-summary(stepwise)
-
-library(car)
-
-vif(s2_lr_model)
-
-library(boot)
-
-?cv.glm()
-
+write.csv(ML_portfolio,"ML_Portfolio.csv")

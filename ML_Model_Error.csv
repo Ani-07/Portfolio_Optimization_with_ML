@@ -1,0 +1,9 @@
+Model Type,Cross_Validated_Error,Hyperparameters
+Lin_Reg_1,18.980325,NA
+Lin_Reg_2,18.99266259,NA
+Lasso_1 (Lambda),19.00546223,1
+Lasso_2 (Lambda),19.00013733,1
+"Boosting_1 (Shrinkage, Tree)",18.8397995,"0.0401, 283"
+"Boosting_2 (Shrinkage, Tree)",18.84565931,"0.0451, 213"
+NeuralNets_1 (Nodes),19.58432525,1 Layer with 5 Nodes
+NeuralNets_2 (Nodes),19.40316629,1 Layer with 5 Nodes

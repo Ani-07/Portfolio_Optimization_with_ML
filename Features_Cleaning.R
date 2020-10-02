@@ -1,6 +1,6 @@
 library(tree)
 
-ML_database <- read.csv("ML_db.csv")
+ML_database <- read.csv("Return_Data.csv")
 
 ###########################################################################
 
@@ -57,41 +57,9 @@ ML_database$vol_cat_5 <- as.factor(ifelse(ML_database$vol_cum_2 > 0.5,1,
 
 ##############################################################################
 
-# We will be training separate models for each category and therefore, we will split them
-# into 5 different datasets
-
-State_1 = ML_database[which(ML_database$Cat == 1),]
-State_2 = ML_database[which(ML_database$Cat == 2),]
-State_3 = ML_database[which(ML_database$Cat == 3),]
-State_4 = ML_database[which(ML_database$Cat == 4),]
-State_5 = ML_database[which(ML_database$Cat == 5),]
-
-################################################################################
-
-overall_cor = cor(ML_database[,2:20])
-state1_cor = cor(State_1[,2:20])
-state2_cor = cor(State_2[,2:20])
-state3_cor = cor(State_3[,2:20])
-state4_cor = cor(State_4[,2:20])
-state5_cor = cor(State_5[,2:20])
-
-cor_comp_tar = rbind(overall_cor[,1],state1_cor[,1],state2_cor[,1],state3_cor[,1],
-                     state4_cor[,1],state5_cor[,1])
-
-
-#################################################################################
-
-overall_cor_sp = cor(ML_database[,2:20], method = "spearman")
-state1_cor_sp = cor(State_1[,2:20], method = "spearman")
-state2_cor_sp = cor(State_2[,2:20], method = "spearman")
-state3_cor_sp = cor(State_3[,2:20],method = "spearman")
-state4_cor_sp = cor(State_4[,2:20], method = "spearman")
-state5_cor_sp = cor(State_5[,2:20], method = "spearman")
-
-cor_comp_sp = rbind(overall_cor_sp[,1],state1_cor_sp[,1],state2_cor_sp[,1],state3_cor_sp[,1],
-                     state4_cor_sp[,1],state5_cor_sp[,1])
-
-
+colnames(ML_database)
+overall_cor = cor(ML_database[,c(2,4:20)])
+overall_cor_sp = cor(ML_database[,c(2,4:20)], method = "spearman")
 ######################################################################################
 
 
@@ -115,8 +83,8 @@ summary(vol)
 # and volume categories except for Vol_cat_3
 
 print(colnames(ML_database))
-feat_cols <- c(1:7,15:18,23,13,14)
+feat_cols <- c(2, 4:8,14:23,26)
 
 ML_features <- ML_database[,feat_cols]
 
-write.csv(ML_features,"ML_features.csv", row.names = FALSE)
+write.csv(ML_features,"features_returns.csv", row.names = FALSE)
